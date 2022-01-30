@@ -1,0 +1,71 @@
+version: "3.8"
+services:
+  prestodb:
+    image: ahanaio/prestodb-sandbox:0.268
+    volumes:
+      - ./prestodb/etc/catalog/iceberg.properties:/opt/presto-server/etc/catalog/iceberg.properties
+      - ./prestodb/etc/access-control.properties:/opt/presto-server/etc/access-control.properties
+    ports:
+      - 8080:8080
+    networks:
+      - demo-network
+
+  mariadb:
+    image: 'mariadb:10.3'
+    ports:
+      - '3306:3306'
+    environment:
+      MYSQL_ROOT_PASSWORD: admin
+      MYSQL_USER: admin
+      MYSQL_PASSWORD: admin
+      MYSQL_DATABASE: metastore_db
+    networks:
+      - demo-network
+
+  # https://github.com/arempter/hive-metastore-docker/blob/master/Dockerfile
+  hive-metastore: # minimal unsecured hive metastore
+    build:
+      context: ./hive-metastore
+      dockerfile: Dockerfile
+    ports:
+      - '9083:9083' # Metastore Thrift
+    depends_on:
+      - mariadb
+    networks:
+      - demo-network
+
+  minio:
+    image: minio/minio:RELEASE.2022-01-28T02-28-16Z
+    ports:
+      - 9000:9000
+      - 9001:9001
+    volumes:
+      - minio-data:/data
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio123
+    command: server /data --address "0.0.0.0:9000" --console-address "0.0.0.0:9001"
+    networks:
+      - demo-network
+
+  minio-provision:
+    image: minio/mc:RELEASE.2022-01-25T21-02-01Z
+    volumes:
+      - ./minio/:/app
+    environment:
+      MINIO_URL: http://minio:9000
+      MINIO_ACCESS_KEY: minio
+      MINIO_SECRET_KEY: minio123
+    depends_on:
+      - minio
+    networks:
+      - demo-network
+    entrypoint: "/bin/sh -c '/app/wait-for.sh --timeout=30 http://minio:9000 -- /app/provisioning.sh'"
+
+volumes:
+  minio-data:
+    driver: local
+
+networks:
+  demo-network:
+    driver: bridge
